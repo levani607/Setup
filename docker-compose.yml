@@ -1,0 +1,87 @@
+
+services:
+  postgres:
+    image: postgres
+    restart: on-failure
+    volumes:
+#      - ./core-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+  zookeeper:
+    image: 'bitnami/zookeeper:latest'
+    ports:
+      - '2181:2181'
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+  kafka:
+    image: 'bitnami/kafka:3.2.3'
+    ports:
+      - '9093:9093'
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
+#      EXTERNAL is used to connect from local machine.
+      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://localhost:9093
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
+    depends_on:
+      - zookeeper
+  hazelcast:
+    image: 'hazelcast/hazelcast:latest'
+    environment:
+      - HZ_NETWORK_PUBLICADDRESS=hazelcast:5701
+    ports:
+      - "5701:5701"
+  user-service:
+    build:
+      context: ./User
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DATASOURCE_URI=${DATABASE_HOST}
+      - DATASOURCE_PORT=${DATABASE_PORT}
+      - DATASOURCE_DB=${USER_DATABASE_NAME}
+      - DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - DATASOURCE_USERNAME=${POSTGRES_USER}
+      - KEYSTORE_KEY=${KEYSTORE_KEY}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - KAFKA_URI=${KAFKA_URI}
+      - EUREKA_URI=${EUREKA_URI}
+    depends_on:
+      - eureka
+      - postgres
+      - kafka
+  order-serivce:
+    build:
+      context: ./Order
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - DATASOURCE_URI=${DATABASE_HOST}
+      - DATASOURCE_PORT=${DATABASE_PORT}
+      - DATASOURCE_DB=${ORDER_DATABASE_NAME}
+      - DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - DATASOURCE_USERNAME=${POSTGRES_USER}
+      - HAZELCAST_URL=${HAZELCAST_URL}
+      - USERS_URI=${USERS_URI}
+      - KAFKA_URI=${KAFKA_URI}
+      - EUREKA_URI=${EUREKA_URI}
+    depends_on:
+      - hazelcast
+      - postgres
+      - kafka
+      - user-service
+      - eureka
+  eureka:
+    ports:
+      - '8761:8761'
+    build:
+      context: ./Eureka
+      dockerfile: Dockerfile
